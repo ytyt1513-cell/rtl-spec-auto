@@ -112,52 +112,69 @@ _RANGE = re.compile(r"\[[^\]]+\]")
 
 
 def _parse_port_lines(block, first_line=1):
-    """ポート宣言部 (ANSI の () 内、または非 ANSI の本体宣言) を行単位で読む。"""
-    ports, group, last = [], "", None
-    pending = []            # 直前の連続したコメント行 (先頭行を節名にする)
-    for k, line in enumerate(block.splitlines()):
-        code, _, comment = line.partition("//")
-        comment = _clean_comment(comment)
-        stripped = code.strip()
-        if not stripped:
-            if comment:
-                pending.append(comment)
-            continue
-        if pending:
-            g = pending[0]
-            if g.count("(") > g.count(")"):
-                g = g[: g.rfind("(")]
-            group = re.sub(r"[\s(（:：、。]+$", "", g).strip() or group
+    """ANSI / old-style declarations, independent of whitespace and line breaks."""
+    code = re.sub(r"\(\*.*?\*\)", _blank, _blank_all_comments(block), flags=re.S)
+    groups, group, pending = {}, "", []
+    for line_number, line in enumerate(block.splitlines()):
+        statement, _, comment = line.partition("//")
+        if not statement.strip():
+            if comment.strip():
+                pending.append(_clean_comment(comment))
+        elif pending:
+            heading = pending[0]
+            if heading.count("(") > heading.count(")"):
+                heading = heading[:heading.rfind("(")]
+            group = re.sub(r"[\s(（:：、。]+$", "", heading).strip() or group
             pending = []
-        m = _PORT_DECL.match(code)
+        groups[line_number] = group
+    ports, last = [], None
+    for start, end in split_spans(code, ",;"):
+        token = code[start:end].strip()
+        if not token:
+            continue
+        m = re.match(r"(input|output|inout)\b\s*(.*)", token, re.S)
         if m:
-            dir_ = DIR_MAP[m.group(1)]
-            head = code[m.start(1): m.start(2)]
-            rm = _RANGE.search(head)
-            width = width_of(rm.group(0) if rm else None)
-            rest = m.group(2)
-            last = (dir_, width)
+            direction, rest = DIR_MAP[m.group(1)], m.group(2)
+            rest = re.sub(r"^(?:(?:wire|reg|logic|var|signed|unsigned)\b\s*)+", "", rest)
+            rm = re.match(r"\[[^\]]+\]\s*", rest)
+            width = width_of(rm.group().strip() if rm else None)
+            rest = rest[rm.end():] if rm else rest
+            last = direction, width
         else:
             if last is None:
                 continue
-            dir_, width = last
-            rest = code
-        rest = re.sub(r"\(\*[^)]*\*\)", "", rest)
-        rest = rest.replace(");", ",").replace(";", ",")
-        names = []
-        for tok in rest.split(","):
-            tok = tok.strip()
-            tok = re.sub(r"=\s*.*$", "", tok).strip()
-            tok = re.sub(r"\[[^\]]*\]\s*$", "", tok).strip()
-            if re.fullmatch(IDENT, tok) and tok not in KEYWORDS:
-                names.append(tok)
-        for i, n in enumerate(names):
-            ports.append(dict(name=n, dir=dir_, width=width, group=group, line=first_line + k,
-                              comment=comment if i == len(names) - 1 or len(names) == 1 else ""))
+            direction, width = last
+            rest = token
+        rest = rest.split("=", 1)[0].strip()
+        if not re.fullmatch(IDENT, rest) or rest in KEYWORDS:
+            raise ValueError(f"unsupported port declaration: {token}")
+        position = re.search(r"\b" + re.escape(rest) + r"\b\s*(?:=.*)?$", code[start:end], re.S)
+        pos = start + position.start() if position else start
+        tail = block[pos:].split("\n", 1)[0]
+        comment = _clean_comment(tail.split("//", 1)[1]) if "//" in tail else ""
+        ports.append(dict(name=rest, dir=direction, width=width, group=groups.get(code[:pos].count("\n"), ""),
+                          line=first_line + code[:pos].count("\n"), comment=comment))
+        if end < len(code) and code[end] == ";":
+            last = None
     return ports
 
 
+def split_spans(text, separators=","):
+    """Top-level expression spans; brackets/braces/parentheses protect commas."""
+    depth, start = 0, 0
+    for i, char in enumerate(text):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0 and char in separators:
+            yield start, i
+            start = i + 1
+    yield start, len(text)
+
+
 def _parse_param_block(block, keyword="parameter"):
+    block = re.sub(r",\s*(?=(?:parameter\s+)?(?:integer\s+|int\s+)?[A-Za-z_]\w*\s*=)", ",\n", block)
     out = []
     for line in block.splitlines():
         code, _, comment = line.partition("//")
@@ -173,23 +190,47 @@ def _parse_param_block(block, keyword="parameter"):
 
 
 # ---------------------------------------------------------------- インスタンス
+def instance_spans(code):
+    """Locate instances with balanced parameter/connection parentheses."""
+    for m in re.finditer(r"(?<![.\w$])(" + IDENT + r")\s+", code):
+        module = m.group(1)
+        if module in KEYWORDS or module.startswith("$"):
+            continue
+        pos = m.end()
+        if code[pos:pos + 1] == "#":
+            pos += 1
+            while pos < len(code) and code[pos].isspace():
+                pos += 1
+            if code[pos:pos + 1] != "(":
+                continue
+            end = _match_paren(code, pos)
+            if end < 0:
+                continue
+            pos = end + 1
+        tail = re.match(r"\s*(" + IDENT + r")\s*\(", code[pos:])
+        if not tail or tail.group(1) in KEYWORDS:
+            continue
+        opening = pos + tail.end() - 1
+        closing = _match_paren(code, opening)
+        yield dict(module=module, inst=tail.group(1), start=m.start(), open=opening, close=closing)
+
+
 def _instances(code, port_names, internals):
     out = []
-    for m in re.finditer(r"(?<![.\w$])(" + IDENT + r")\s*(#\s*\((?:[^()]|\([^()]*\))*\))?\s+(" + IDENT + r")\s*\(", code):
-        mod, inst = m.group(1), m.group(3)
+    for span in instance_spans(code):
+        mod, inst = span["module"], span["inst"]
         if mod in KEYWORDS or inst in KEYWORDS or mod.startswith("$") or mod in port_names or mod in internals:
             continue
         if mod in ("posedge", "negedge") or inst in port_names:
             continue
-        open_ = m.end() - 1
-        close = _match_paren(code, open_)
+        open_, close = span["open"], span["close"]
         conns = {}
         if close > 0:
             body = code[open_ + 1: close]
             for c in re.finditer(r"\.\s*(" + IDENT + r")\s*\(", body):
                 e = _match_paren(body, c.end() - 1)
                 conns[c.group(1)] = " ".join(body[c.end(): e].split()) if e > 0 else ""
-        out.append(dict(module=mod, inst=inst, conns=conns, line=_line_of(code, m.start())))
+        out.append(dict(module=mod, inst=inst, conns=conns, line=_line_of(code, span["start"])))
     return out
 
 
@@ -380,10 +421,10 @@ def leaf_paths(branch):
 # ---------------------------------------------------------------- 本体
 def parse(vpath):
     vpath = Path(vpath)
-    raw = vpath.read_text(encoding="utf-8", errors="replace")
+    raw = vpath.read_text(encoding="utf-8-sig")
     text = _blank_block_comments(raw)        # 行コメントは残す (ポートのコメント用)。長さは raw と同じ
     code = _blank_all_comments(raw)          # 解析用。長さは raw と同じ
-    mm = re.search(r"^\s*module\s+(" + IDENT + r")", code, re.M)
+    mm = re.search(r"^[ \t]*module\s+(" + IDENT + r")", code, re.M)   # \s* だと空白化したヘッダコメントを飲み込み header が空になる
     if not mm:
         raise ValueError(f"module 文が見つからない: {vpath}")
     name = mm.group(1)
@@ -405,7 +446,7 @@ def parse(vpath):
         port_first = _line_of(code, j + 1)
         j = e + 1
     semi = code.index(";", j)
-    end = re.search(r"^\s*endmodule\b", code[semi:], re.M)
+    end = re.search(r"\bendmodule\b", code[semi:])
     body_start = semi + 1
     body_end = semi + end.start() if end else len(code)
     body_code = code[body_start: body_end]
@@ -414,15 +455,12 @@ def parse(vpath):
 
     ports = _parse_port_lines(port_block, port_first) if re.search(r"\b(input|output|inout)\b", port_block) else []
     if not ports:  # 非 ANSI: 本体の宣言を拾う
-        sel = []
-        for k, l in enumerate(body_text.splitlines()):
-            if re.match(r"^\s*(input|output|inout)\b", l) or (l.strip().startswith("//") and not l.strip().startswith("//=")):
-                sel.append((body_line + k, l))
-        block = "\n".join(l for _, l in sel)
-        ports = _parse_port_lines(block, sel[0][0] if sel else body_line)
-        for l in body_text.splitlines():
-            if re.match(r"^\s*parameter\b", l):
-                params += _parse_param_block(l)
+        module_body = re.sub(r"\b(function|task)\b.*?\bend\1\b", _blank, body_code, flags=re.S)
+        declarations = list(re.finditer(r"\b(?:input|output|inout)\b[^;]*;", module_body))
+        block = "\n".join(body_text[d.start():d.end()] for d in declarations)
+        ports = _parse_port_lines(block, body_line)
+        for d in re.finditer(r"\bparameter\b[^;]*;", body_code):
+            params += _parse_param_block(d.group())
 
     localparams = []
     for m in re.finditer(r"^\s*localparam\b(.*?);", body_code, re.M | re.S):

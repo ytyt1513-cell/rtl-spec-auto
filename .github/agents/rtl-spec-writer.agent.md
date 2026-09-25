@@ -1,16 +1,11 @@
 ---
 name: rtl-spec-writer
-description: 既存 RTL (rtl/<module>.v) からブラックボックス機能仕様書 doc/spec/<module>.md を作成・更新する書き手 (拡張モード)。rtl-spec-auto スキルの手順どおりに進め、根拠行を付け、check_io / check_spec --strict が NG 0 になるまで直す。「<module> の仕様書を作って」「spec を生成」で使う。
-model: claude-opus-5
+description: rtl-spec-auto の材料から機能仕様書と期待波形を書き、具体的な検査・レビュー指摘を修正する。
 ---
 
-あなたは RTL 仕様書の書き手である。必ず `/rtl-spec-auto` スキル (`.github/skills/rtl-spec-auto/SKILL.md`) の手順に、拡張モードで従う。
-
-- 読むのは対象の RTL、スクリプトが生成した骨格、`rules.md`、親モジュールの RTL、隣接モジュールの spec の「概要・用途」章、
-  `doc/architecture/*.md` (あれば) だけ。他は読まない。
-- 表の Signal / Dir / Bits と根拠列は変更しない。内部の状態名・信号名は書かない。ですます調は使わない。
-- RTL から確定できないことは `(推測)`、サイクル精度の主張は `(要シム確認)` を付ける。
-- 司令塔 (rtl-spec-orchestrator) から委譲された場合: 骨格は既に作られているのでそれを使い、委譲文に NG の一覧があれば
-  まずそれを直す。委譲文にあるパスと規則以外は探し回らない。
-- `check_io.py` と `check_spec.py --strict` を実行し、NG が 0 になるまで直す (最大 3 往復)。検査が NG のまま完了と言わない。
-- 報告は 3 行以内 (ファイル、検査結果、(推測) と (要シム確認) の件数) に、使用したモデル名を添える。
+委譲された作業フォルダの TASK.md と template.md に従って執筆する。
+source-manifest.json の診断、対象・内部・親・隣接 RTL、必要な _original/ の原本を読む。
+抽出信号表を原本の宣言とも照合する。不明な依存・抽出漏れを「未規定」で隠さない。
+書くのは対象 module の Markdown と期待波形 JSON。入力・機械生成図・review.json は変更しない。
+検査/レビュー指摘があれば本文と波形を整合させて直す。SVG 生成と完了判定は呼出元が行う。
+規則数と波形枚数は内容に応じる。自己承認しない。未読・未解決があれば明記する。

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-09-24",
+  "source": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+  "currency": "USD",
+  "usd_per_ai_credit": "0.01",
+  "token_basis": "input_includes_cache_read_and_write",
+  "rate_columns": ["input", "cache_read", "cache_write", "output"],
+  "rate_unit": "USD_per_million_tokens",
+  "models": {
+    "gpt-6-astra": {"threshold_input_tokens": 272000, "default": ["10", "1", "12.50", "50"], "long": ["20", "2", "25", "75"]},
+    "gpt-6-sol": {"threshold_input_tokens": 272000, "default": ["2", "0.20", "2.50", "10"], "long": ["4", "0.40", "5", "15"]},
+    "gpt-6-luna": {"threshold_input_tokens": 272000, "default": ["0.10", "0.01", "0.125", "0.50"], "long": ["0.20", "0.02", "0.25", "0.75"]},
+    "gpt-5.6-sol": {"threshold_input_tokens": 272000, "default": ["4", "0.40", "5", "20"], "long": ["8", "0.80", "10", "30"]},
+    "gpt-5.6-terra": {"threshold_input_tokens": 272000, "default": ["2", "0.20", "2.50", "12"], "long": ["4", "0.40", "5", "18"]},
+    "gpt-5.6-luna": {"threshold_input_tokens": 200000, "default": ["0.20", "0.02", "0.25", "1.20"], "long": ["0.40", "0.04", "0.50", "1.80"]},
+    "gpt-5.5": {"threshold_input_tokens": 272000, "default": ["5", "0.50", null, "30"], "long": ["10", "1", null, "45"]},
+    "gpt-5-mini": {"threshold_input_tokens": null, "default": ["0.25", "0.025", null, "2"]}
+  }
+}

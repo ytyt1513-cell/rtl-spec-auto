@@ -1,0 +1,14 @@
+{
+  "name": "hdmiout-wavedrom-render",
+  "version": "1.0.0",
+  "description": "spec の期待波形 (WaveDrom JSON) を SVG に描く純 JS ツール (node tools/wavedrom/render.js --all doc/spec/img)",
+  "scripts": {
+    "render": "node render.js --all ../../doc/spec/img"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "onml": "^2.1.0",
+    "wavedrom": "^3.7.0"
+  },
+  "private": true
+}

@@ -10,7 +10,7 @@ import shutil
 import sys
 from pathlib import Path
 
-GITIGNORE_LINES = ["doc/spec/.rtl-spec-auto/", "doc/spec/*.new.md"]
+GITIGNORE_LINES = ["work/", "doc/spec/.rtl-spec-auto/", "doc/spec/*.new.md"]
 
 
 def main(argv):
@@ -34,9 +34,11 @@ def main(argv):
         dst_skill = root / ".github" / "skills" / "rtl-spec-auto"
         dst_agents = root / ".github" / "agents"
 
-    if dst_skill.exists():
-        shutil.rmtree(dst_skill)
-    shutil.copytree(src / ".github" / "skills" / "rtl-spec-auto", dst_skill, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    source_skill = src / ".github" / "skills" / "rtl-spec-auto"
+    if source_skill.resolve() == dst_skill.resolve():
+        print("コピー元と展開先が同じ。別のリポジトリを指定する。", file=sys.stderr)
+        return 2
+    shutil.copytree(source_skill, dst_skill, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     dst_agents.mkdir(parents=True, exist_ok=True)
     for a in sorted((src / ".github" / "agents").glob("rtl-spec-*.agent.md")):
         shutil.copy2(a, dst_agents / a.name)
@@ -57,7 +59,7 @@ def main(argv):
         print(f"展開完了: {dst_skill}, {dst_agents} (.gitignore に {len(add)} 行追記)。git add .github .gitignore してコミットする。")
     else:
         print(f"展開完了 (個人環境): {dst_skill}, {dst_agents}")
-    print("次: 対象リポジトリで copilot を起動し /model でモデル名を確認 → .agent.md の model: と run.sh の既定値を合わせる。")
+    print(f"次: python {dst_skill / 'run.py'} prepare <module> --rtl-dir <rtl-dir> --out <empty-output-dir>")
     return 0
 
 
